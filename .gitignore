@@ -1,0 +1,8 @@
+# Ignore everything
+*
+
+# Allow .tf files
+!.tf
+
+# Allow .gitignore itself
+!.gitignore
