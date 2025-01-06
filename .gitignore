@@ -4,5 +4,9 @@
 # Allow .tf files
 !.tf
 
+# Allow .js files
+!lambda/
+!lambda/*.js
+
 # Allow .gitignore itself
 !.gitignore
