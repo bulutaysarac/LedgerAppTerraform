@@ -46,7 +46,6 @@ resource "aws_security_group" "ledger_app_sg" {
   }
 }
 
-# EC2 Instance
 resource "aws_instance" "ledger_app" {
   ami           = "ami-0a094c309b87cc107"
   instance_type = "t2.micro"
@@ -54,23 +53,57 @@ resource "aws_instance" "ledger_app" {
 
   security_groups = [aws_security_group.ledger_app_sg.name]
 
-  user_data = <<-EOF
-    #!/bin/bash
-    set -e
-    yum update -y
-    yum install -y docker git unzip
-    systemctl start docker
-    systemctl enable docker
-    usermod -aG docker ec2-user
-    curl -L "https://github.com/docker/compose/releases/download/2.10.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    chmod +x /usr/local/bin/docker-compose
-    git clone https://github.com/bulutaysarac/LedgerApp.git /var/www/laravel
-    cd /var/www/laravel
-    cp .env.example .env
-    /usr/local/bin/docker-compose up -d
-    docker exec app-container-name php artisan key:generate
-    docker exec app-container-name php artisan migrate --force
-  EOF
+    user_data = <<-EOF
+      #!/bin/bash
+      set -e
+
+      # Update and install necessary packages
+      yum update -y
+      yum install -y docker git unzip jq
+
+      # Start and enable Docker
+      systemctl start docker
+      systemctl enable docker
+      usermod -aG docker ec2-user
+
+      # Install Docker Compose
+      curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
+      chmod +x /usr/local/bin/docker-compose
+
+      # Clone the Laravel application repository
+      git clone https://github.com/bulutaysarac/LedgerApp.git /var/www/laravel
+      cd /var/www/laravel
+
+      # Copy .env.example to .env
+      cp .env.example .env
+
+      # Update MySQL-related environment variables in the .env file
+      sed -i "s/^DB_HOST=.*/DB_HOST=mysql_db/" .env
+      sed -i "s/^DB_DATABASE=.*/DB_DATABASE=ledger/" .env
+
+      # Start the application
+      /usr/local/bin/docker-compose up -d
+
+      # Wait for MySQL to be ready
+      until docker exec mysql_db mysqladmin ping --silent; do
+        echo "Waiting for MySQL..."
+        sleep 2
+      done
+
+      # Generate APP_KEY dynamically
+      docker exec laravel_app php artisan key:generate
+
+      # Run Laravel setup commands
+      docker exec laravel_app composer install --no-dev --optimize-autoloader
+      docker exec laravel_app php artisan migrate --force
+
+      # Ensure logs folder exists and has correct permissions
+      docker exec laravel_app mkdir -p /var/www/laravel/storage/logs
+      docker exec laravel_app touch /var/www/laravel/storage/logs/laravel.log
+      docker exec laravel_app mkdir -p /var/www/storage/logs /var/www/storage/framework/cache/data
+      docker exec laravel_app chmod -R 775 /var/www/storage /var/www/bootstrap/cache
+      docker exec laravel_app chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
+    EOF
 
   tags = {
     Name        = "ledger-app-server"
